@@ -133,7 +133,7 @@ const App: React.FC = () => {
             </div>
             <div className="min-w-0">
               <h1 className="text-sm sm:text-lg font-bold text-gray-900 leading-tight truncate">QUATTRO PAROLE</h1>
-              <p className="text-[9px] sm:text-[10px] text-gray-500 font-bold uppercase tracking-wide hidden sm:block">
+              <p className="text-[9px] sm:text-[10px] text-gray-500 font-bold uppercase tracking-wide">
                 {parole.length} {parole.length === 1 ? 'contributo' : 'contributi'}
                 {parole.length > 0 && (
                   <span className="normal-case ml-1.5 text-gray-600">
