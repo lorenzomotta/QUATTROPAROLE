@@ -2,8 +2,8 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { Parola } from '../types';
 
 // Configurazione Supabase
-const SUPABASE_URL = "https://ijvyypnqfbmqpeevxvqr.supabase.co"; 
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imlqdnl5cG5xZmJtcXBlZXZ4dnFyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0MjE3MDksImV4cCI6MjA4Njk5NzcwOX0.xyFz60CEa9qcEdhliQErIXhu3IUJS3a55HR5JqzSQWg";
+const SUPABASE_URL = "https://ghhalunaiqtyoxryygje.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdoaGFsdW5haXF0eW94cnl5Z2plIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE1NTY4NDMsImV4cCI6MjA5NzEzMjg0M30.HUb24RUkqO08LPtAFJTs5MmjnUudx5l6fVCe8vTOcGs";
 
 const isConfigured = SUPABASE_URL.startsWith('https://') && !SUPABASE_URL.includes("INSERISCI_QUI");
 
@@ -17,8 +17,14 @@ if (isConfigured) {
 }
 
 const LOCAL_KEY = 'quattro_parole_local_db';
+const TABLE_NAMES = ['storia', 'STORIA'];
 
-// Supabase/PostgreSQL spesso usa snake_case. Mappa riga DB -> Parola
+export type StorageStatus = {
+  mode: 'cloud' | 'local';
+  cloudOk: boolean;
+  cloudError?: string;
+};
+
 type RowStoria = {
   id: string;
   autore: string;
@@ -27,7 +33,7 @@ type RowStoria = {
   parola3: string;
   parola4: string;
   created_at?: number;
-  createdat?: number; // se il DB ha tutto minuscolo
+  createdat?: number;
 };
 
 function rowToParola(row: RowStoria): Parola {
@@ -43,98 +49,173 @@ function rowToParola(row: RowStoria): Parola {
   };
 }
 
+function getLocalParole(): Parola[] {
+  const localData = localStorage.getItem(LOCAL_KEY);
+  const parole: Parola[] = localData ? JSON.parse(localData) : [];
+  return parole.sort((a, b) => a.createdAt - b.createdAt);
+}
+
+function saveLocalParole(parole: Parola[]): void {
+  localStorage.setItem(LOCAL_KEY, JSON.stringify(parole));
+}
+
+async function fetchFromCloud(): Promise<{ parole: Parola[]; error?: string }> {
+  if (!supabase) {
+    return { parole: [], error: 'Client Supabase non disponibile.' };
+  }
+
+  for (const tableName of TABLE_NAMES) {
+    let result = await supabase
+      .from(tableName)
+      .select('*')
+      .order('created_at', { ascending: true });
+
+    if (result.error && (result.error.code === 'PGRST204' || String(result.error.message).includes('400'))) {
+      result = await supabase.from(tableName).select('*');
+    }
+
+    if (!result.error && result.data && Array.isArray(result.data)) {
+      const parole = (result.data as RowStoria[]).map(rowToParola);
+      return { parole: parole.sort((a, b) => a.createdAt - b.createdAt) };
+    }
+
+    if (result.error && (result.error.code === 'PGRST116' || result.error.message?.includes('not find the table'))) {
+      continue;
+    }
+
+    if (result.error) {
+      return { parole: [], error: result.error.message };
+    }
+  }
+
+  return { parole: [], error: 'Tabella "storia" non trovata su Supabase. Esegui supabase_setup.sql nel SQL Editor.' };
+}
+
+async function insertToCloud(parola: Omit<Parola, 'id' | 'createdAt'>): Promise<{ ok: boolean; error?: string }> {
+  if (!supabase) {
+    return { ok: false, error: 'Client Supabase non disponibile.' };
+  }
+
+  const now = Date.now();
+  const base = {
+    autore: parola.autore,
+    parola1: parola.parola1,
+    parola2: parola.parola2,
+    parola3: parola.parola3,
+    parola4: parola.parola4,
+  };
+
+  for (const tableName of TABLE_NAMES) {
+    let result = await supabase.from(tableName).insert([{ ...base, created_at: now }]);
+
+    if (result.error && (result.error.code === 'PGRST204' || String(result.error.message).includes('400'))) {
+      result = await supabase.from(tableName).insert([{ ...base, createdAt: now }]);
+    }
+
+    if (!result.error) {
+      return { ok: true };
+    }
+
+    if (result.error && (result.error.code === 'PGRST116' || result.error.message?.includes('not find the table'))) {
+      continue;
+    }
+
+    if (result.error) {
+      return { ok: false, error: result.error.message };
+    }
+  }
+
+  return { ok: false, error: 'Tabella "storia" non trovata su Supabase. Esegui supabase_setup.sql nel SQL Editor.' };
+}
+
+async function migrateLocalToCloud(): Promise<void> {
+  const localParole = getLocalParole();
+  if (localParole.length === 0) return;
+
+  for (const parola of localParole) {
+    const result = await insertToCloud({
+      autore: parola.autore,
+      parola1: parola.parola1,
+      parola2: parola.parola2,
+      parola3: parola.parola3,
+      parola4: parola.parola4,
+    });
+    if (!result.ok) {
+      throw new Error(result.error ?? 'Errore durante la migrazione dei dati locali.');
+    }
+  }
+
+  localStorage.removeItem(LOCAL_KEY);
+}
+
 export const storageService = {
-  isCloudConnected: () => isConfigured && supabase !== null,
+  isConfigured: () => isConfigured && supabase !== null,
+
+  getStorageStatus: async (): Promise<StorageStatus> => {
+    if (!isConfigured || !supabase) {
+      return { mode: 'local', cloudOk: false };
+    }
+
+    const { error } = await fetchFromCloud();
+    if (error) {
+      return { mode: 'cloud', cloudOk: false, cloudError: error };
+    }
+
+    return { mode: 'cloud', cloudOk: true };
+  },
 
   getParole: async (): Promise<Parola[]> => {
     if (supabase) {
-      // Prova prima con "storia" (minuscolo, standard PostgreSQL)
-      // Se non funziona, prova con "STORIA" (maiuscolo)
-      const tableNames = ['storia', 'STORIA'];
-      
-      for (const tableName of tableNames) {
-        let result = await supabase
-          .from(tableName)
-          .select('*')
-          .order('created_at', { ascending: true });
-        
-        // Se errore con order, prova senza order
-        if (result.error && (result.error.code === 'PGRST204' || String(result.error.message).includes('400'))) {
-          result = await supabase.from(tableName).select('*');
-        }
-        
-        if (!result.error && result.data && Array.isArray(result.data)) {
-          const parole = (result.data as RowStoria[]).map(rowToParola);
-          return parole.sort((a, b) => a.createdAt - b.createdAt);
-        }
-        
-        // Se errore 404/table not found, prova il prossimo nome
-        if (result.error && (result.error.code === 'PGRST116' || result.error.message?.includes('not find the table'))) {
-          continue; // Prova il prossimo nome tabella
-        }
-        
-        // Se altro errore, logga e continua
-        if (result.error) {
-          console.warn(`Errore con tabella "${tableName}":`, result.error.message);
+      const { parole, error } = await fetchFromCloud();
+      if (error) {
+        throw new Error(error);
+      }
+
+      if (parole.length === 0) {
+        const localParole = getLocalParole();
+        if (localParole.length > 0) {
+          await migrateLocalToCloud();
+          const { parole: cloudParole, error: reloadError } = await fetchFromCloud();
+          if (reloadError) {
+            throw new Error(reloadError);
+          }
+          return cloudParole;
         }
       }
-      
-      console.error('Nessuna tabella trovata. Usando localStorage.');
+
+      return parole;
     }
 
-    const localData = localStorage.getItem(LOCAL_KEY);
-    const parole: Parola[] = localData ? JSON.parse(localData) : [];
-    return parole.sort((a, b) => a.createdAt - b.createdAt);
+    return getLocalParole();
   },
 
   saveParola: async (parola: Omit<Parola, 'id' | 'createdAt'>): Promise<void> => {
     if (supabase) {
-      const now = Date.now();
-      const base = {
-        autore: parola.autore,
-        parola1: parola.parola1,
-        parola2: parola.parola2,
-        parola3: parola.parola3,
-        parola4: parola.parola4,
-      };
-      
-      // Prova prima con "storia" (minuscolo), poi con "STORIA" (maiuscolo)
-      const tableNames = ['storia', 'STORIA'];
-      
-      for (const tableName of tableNames) {
-        // Prova prima con created_at (snake_case, standard Supabase)
-        let result = await supabase.from(tableName).insert([{ ...base, created_at: now }]);
-        
-        // Se errore con created_at, prova con createdAt (camelCase)
-        if (result.error && (result.error.code === 'PGRST204' || String(result.error.message).includes('400'))) {
-          result = await supabase.from(tableName).insert([{ ...base, createdAt: now }]);
-        }
-        
-        if (!result.error) {
-          return; // Salvataggio riuscito
-        }
-        
-        // Se errore 404/table not found, prova il prossimo nome
-        if (result.error && (result.error.code === 'PGRST116' || result.error.message?.includes('not find the table'))) {
-          continue; // Prova il prossimo nome tabella
-        }
-        
-        // Se altro errore, logga e continua
-        if (result.error) {
-          console.warn(`Errore con tabella "${tableName}":`, result.error.message);
-        }
+      const result = await insertToCloud(parola);
+      if (!result.ok) {
+        throw new Error(result.error ?? 'Impossibile salvare su Supabase.');
       }
-      
-      console.error('Nessuna tabella trovata. Salvando su localStorage.');
+      return;
     }
 
-    const localData = localStorage.getItem(LOCAL_KEY);
-    const parole: Parola[] = localData ? JSON.parse(localData) : [];
+    const parole = getLocalParole();
     const newParola: Parola = {
       ...parola,
       id: crypto.randomUUID(),
-      createdAt: Date.now()
+      createdAt: Date.now(),
     };
-    localStorage.setItem(LOCAL_KEY, JSON.stringify([...parole, newParola]));
+    saveLocalParole([...parole, newParola]);
+  },
+
+  hasLocalOnlyData: (): boolean => {
+    if (!supabase) return false;
+    const localData = localStorage.getItem(LOCAL_KEY);
+    if (!localData) return false;
+    try {
+      const parsed = JSON.parse(localData);
+      return Array.isArray(parsed) && parsed.length > 0;
+    } catch {
+      return false;
+    }
   },
 };

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Parola } from './types';
-import { storageService } from './services/storageService';
+import { storageService, StorageStatus } from './services/storageService';
 
 // TODO: Imposta la password per autorizzare l'inserimento
 const INSERT_PASSWORD = 'VALHALLA';
@@ -8,7 +8,9 @@ const INSERT_PASSWORD = 'VALHALLA';
 const App: React.FC = () => {
   const [parole, setParole] = useState<Parola[]>([]);
   const [loading, setLoading] = useState(true);
-  const [isCloud, setIsCloud] = useState(false);
+  const [storageStatus, setStorageStatus] = useState<StorageStatus>({ mode: 'local', cloudOk: false });
+  const [loadError, setLoadError] = useState('');
+  const [saveError, setSaveError] = useState('');
   
   const [showAddForm, setShowAddForm] = useState(false);
   const [passwordInput, setPasswordInput] = useState('');
@@ -23,10 +25,18 @@ const App: React.FC = () => {
 
   const loadData = useCallback(async () => {
     setLoading(true);
-    const data = await storageService.getParole();
-    setParole(data);
-    setIsCloud(storageService.isCloudConnected());
-    setLoading(false);
+    setLoadError('');
+    try {
+      const status = await storageService.getStorageStatus();
+      setStorageStatus(status);
+      const data = await storageService.getParole();
+      setParole(data);
+    } catch (error) {
+      setParole([]);
+      setLoadError(error instanceof Error ? error.message : 'Errore durante il caricamento dei dati.');
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -56,22 +66,27 @@ const App: React.FC = () => {
       return;
     }
 
-    await storageService.saveParola({
-      autore: autore.trim(),
-      parola1: parola1.trim(),
-      parola2: parola2.trim(),
-      parola3: parola3.trim(),
-      parola4: parola4.trim(),
-    });
+    setSaveError('');
+    try {
+      await storageService.saveParola({
+        autore: autore.trim(),
+        parola1: parola1.trim(),
+        parola2: parola2.trim(),
+        parola3: parola3.trim(),
+        parola4: parola4.trim(),
+      });
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Impossibile salvare il contributo.');
+      return;
+    }
 
-    // Reset form
     setAutore('');
     setParola1('');
     setParola2('');
     setParola3('');
     setParola4('');
     setShowAddForm(false);
-    
+
     await loadData();
   };
 
@@ -115,7 +130,18 @@ const App: React.FC = () => {
     }
   };
 
-  // Costruisce la concatenazione di tutte le parole
+  const getStorageBadge = () => {
+    if (storageStatus.mode === 'local') {
+      return { label: 'Solo questo PC', className: 'bg-amber-100 text-amber-700' };
+    }
+    if (storageStatus.cloudOk) {
+      return { label: 'Cloud OK', className: 'bg-green-100 text-green-700' };
+    }
+    return { label: 'Cloud errore', className: 'bg-red-100 text-red-700' };
+  };
+
+  const storageBadge = getStorageBadge();
+
   const getConcatenatedText = () => {
     if (parole.length === 0) return '';
     return parole.map(p => `${p.parola1} ${p.parola2} ${p.parola3} ${p.parola4}`).join(' ');
@@ -145,8 +171,8 @@ const App: React.FC = () => {
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
             {loading && <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>}
-            <span className={`text-[8px] sm:text-[9px] px-1 sm:px-1.5 py-0.5 rounded-full font-black uppercase flex-shrink-0 ${isCloud ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
-              {isCloud ? 'Cloud' : 'Local'}
+            <span className={`text-[8px] sm:text-[9px] px-1 sm:px-1.5 py-0.5 rounded-full font-black uppercase flex-shrink-0 ${storageBadge.className}`}>
+              {storageBadge.label}
             </span>
           </div>
         </div>
@@ -154,6 +180,18 @@ const App: React.FC = () => {
 
       <main className="max-w-4xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 mt-0 sm:mt-6">
         <div className="space-y-6">
+          {loadError && (
+            <div className="bg-red-50 border border-red-200 text-red-800 rounded-xl p-4 text-sm">
+              <p className="font-bold mb-1">Impossibile caricare i dati dal cloud</p>
+              <p>{loadError}</p>
+              <p className="mt-2 text-red-700">Apri Supabase → SQL Editor ed esegui il file <strong>supabase_setup.sql</strong> del progetto.</p>
+            </div>
+          )}
+          {!loadError && storageStatus.mode === 'local' && (
+            <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-xl p-4 text-sm">
+              I dati restano salvati solo su questo browser/PC. Configura Supabase in <strong>services/storageService.ts</strong> per condividerli tra dispositivi.
+            </div>
+          )}
           {/* Visualizzazione concatenazione */}
           <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-6 sm:p-8">
             <h2 className="text-lg sm:text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
@@ -240,6 +278,9 @@ const App: React.FC = () => {
                     />
                   </div>
                 </div>
+                {saveError && (
+                  <p className="text-red-600 text-sm font-bold bg-red-50 border border-red-200 rounded-lg p-3">{saveError}</p>
+                )}
                 <div className="flex gap-3 sm:gap-4 pt-2">
                   <button
                     type="button"
