@@ -1,0 +1,289 @@
+================================================================================
+  QUATTRO PAROLE - Riepilogo architettura dell'applicazione
+================================================================================
+
+Ultimo aggiornamento: giugno 2025
+
+
+1. COSA FA L'APP
+--------------------------------------------------------------------------------
+
+Quattro Parole è una webapp collaborativa: ogni utente autorizzato può aggiungere
+un contributo di 4 parole (+ nome autore). Tutti i contributi vengono uniti in
+un unico testo leggibile da chiunque apra la pagina.
+
+Esempio:
+  - Mario inserisce: "Il sole splende oggi"
+  - Laura inserisce: "mentre i bambini giocano felici"
+  - Testo completo: "Il sole splende oggi mentre i bambini giocano felici"
+
+
+2. SCHEMA GENERALE (vista dall'alto)
+--------------------------------------------------------------------------------
+
+  [Browser dell'utente]
+         |
+         |  apre la pagina web
+         v
+  [GitHub Pages]  -->  file statici (HTML, JS, CSS)
+         |
+         |  l'app React legge/scrive dati
+         v
+  [Supabase Cloud]  -->  database PostgreSQL (tabella "storia")
+         |
+         |  fallback solo se Supabase NON è configurato
+         v
+  [localStorage del browser]  -->  dati solo su quel PC
+
+
+3. STRUTTURA DEI FILE NEL PROGETTO
+--------------------------------------------------------------------------------
+
+QUATTROPAROLE/
+|
+|-- index.html              Punto di ingresso HTML, carica Tailwind CSS e React
+|-- index.tsx               Avvia React e monta il componente App
+|-- App.tsx                 Interfaccia utente principale (tutta la logica UI)
+|-- types.ts                Definizione del tipo dati "Parola"
+|
+|-- services/
+|   └── storageService.ts   Gestione salvataggio/lettura dati (cloud o locale)
+|
+|-- supabase_setup.sql      Script SQL per creare tabella e permessi su Supabase
+|-- vite.config.ts          Configurazione build (Vite + path GitHub Pages)
+|-- package.json            Dipendenze npm (React, Supabase, Vite)
+|
+|-- public/
+|   └── 404.html            Pagina di errore per GitHub Pages
+|
+|-- .github/workflows/
+|   └── deploy.yml          Deploy automatico su GitHub Pages ad ogni push
+|
+|-- ARCHITETTURA.txt        Questo file
+
+
+4. TECNOLOGIE USATE
+--------------------------------------------------------------------------------
+
+  Frontend:
+    - React 19          Libreria per costruire l'interfaccia
+    - TypeScript        JavaScript con tipi, per meno errori
+    - Tailwind CSS      Stili via classi (caricato da CDN)
+    - Vite              Strumento per sviluppo locale e build di produzione
+
+  Backend / Database:
+    - Supabase          Servizio cloud con database PostgreSQL
+    - @supabase/supabase-js   Libreria client per parlare con Supabase
+
+  Hosting:
+    - GitHub Pages      Sito pubblico statico
+    - GitHub Actions    Build e deploy automatici
+
+
+5. FLUSSO DELL'APPLICAZIONE
+--------------------------------------------------------------------------------
+
+5.1 Avvio pagina
+  1. Il browser carica index.html
+  2. index.tsx monta il componente App
+  3. App chiama storageService.getStorageStatus() per verificare il cloud
+  4. App chiama storageService.getParole() per caricare i contributi
+  5. I contributi vengono mostrati nel "Testo Completo"
+
+5.2 Aggiunta di un contributo
+  1. L'utente clicca "AGGIUNGI TUE 4 PAROLE"
+  2. Appare un modal con richiesta password (definita in App.tsx)
+  3. Se la password è corretta, compare il form (autore + 4 parole)
+  4. L'utente compila e conferma
+  5. App chiama storageService.saveParola()
+  6. I dati vengono salvati su Supabase (tabella "storia")
+  7. La lista e il testo vengono ricaricati
+
+5.3 Visualizzazione testo
+  - Ogni contributo = 4 parole separate da spazio
+  - I contributi sono concatenati in ordine cronologico (created_at)
+  - Formula: parola1 parola2 parola3 parola4 (per ogni riga), uniti con spazi
+
+
+6. MODELLO DATI
+--------------------------------------------------------------------------------
+
+6.1 Tipo "Parola" (types.ts) - usato nell'app
+
+  id         string    Identificativo univoco (UUID)
+  autore     string    Nome di chi ha scritto il contributo
+  parola1    string    Prima parola
+  parola2    string    Seconda parola
+  parola3    string    Terza parola
+  parola4    string    Quarta parola
+  createdAt  number    Data/ora in millisecondi (timestamp)
+
+6.2 Tabella "storia" su Supabase (supabase_setup.sql)
+
+  id         UUID      Chiave primaria (generata automaticamente)
+  autore     TEXT      Nome autore
+  parola1    TEXT      Prima parola
+  parola2    TEXT      Seconda parola
+  parola3    TEXT      Terza parola
+  parola4    TEXT      Quarta parola
+  created_at BIGINT    Timestamp in millisecondi
+
+  Sicurezza (RLS - Row Level Security):
+    - SELECT consentito a tutti (ruolo "anon")  --> chiunque può leggere
+    - INSERT consentito a tutti (ruolo "anon")  --> chiunque può inserire
+    - La password nell'app è solo lato client (non è sicurezza server)
+
+
+7. SERVIZIO DI STORAGE (storageService.ts)
+--------------------------------------------------------------------------------
+
+Questo file è il "cervello" per i dati. L'app non parla direttamente con
+Supabase: passa sempre da storageService.
+
+Funzioni principali:
+
+  getStorageStatus()
+    Verifica se Supabase risponde correttamente.
+    Restituisce: mode (cloud/local), cloudOk (true/false), eventuale errore.
+
+  getParole()
+    Legge tutti i contributi dal cloud.
+    Se il cloud è vuoto ma ci sono dati locali nel browser, li migra
+    automaticamente su Supabase.
+    Se Supabase è configurato ma non funziona, lancia un errore (non usa
+    più il fallback silenzioso su localStorage).
+
+  saveParola()
+    Salva un nuovo contributo su Supabase.
+    Se Supabase non è configurato, salva solo in localStorage.
+
+  hasLocalOnlyData()
+    Controlla se nel browser ci sono dati non ancora migrati al cloud.
+
+Modalità di funzionamento:
+
+  CLOUD (normale):
+    Supabase configurato e funzionante --> dati condivisi tra tutti i PC
+
+  CLOUD ERRORE:
+    Supabase configurato ma tabella/permessi mancanti --> messaggio rosso
+
+  SOLO QUESTO PC:
+    Supabase non configurato --> dati solo nel localStorage del browser
+
+
+8. INTERFACCIA UTENTE (App.tsx)
+--------------------------------------------------------------------------------
+
+Componenti logici:
+
+  Header
+    - Titolo "QUATTRO PAROLE"
+    - Contatore contributi e nome ultimo autore
+    - Badge stato: "Cloud OK" / "Cloud errore" / "Solo questo PC"
+
+  Testo Completo
+    - Mostra la concatenazione di tutti i contributi
+
+  Pulsante "AGGIUNGI TUE 4 PAROLE"
+    - Apre il flusso password + form
+
+  Modal Password
+    - Password hardcoded: INSERT_PASSWORD in App.tsx (attualmente 'VALHALLA')
+    - Protegge solo l'accesso al form, non il database
+
+  Form inserimento
+    - Campi: autore, parola1, parola2, parola3, parola4
+    - Validazione: una parola per campo, max 1 segno di punteggiatura
+
+  Messaggi di errore
+    - Errore caricamento cloud (banner rosso)
+    - Errore salvataggio (sotto il form)
+    - Avviso modalità solo locale (banner giallo)
+
+
+9. DEPLOY E PUBBLICAZIONE
+--------------------------------------------------------------------------------
+
+Repository GitHub: lorenzomotta/QUATTROPAROLE
+
+URL sito (GitHub Pages):
+  https://lorenzomotta.github.io/QUATTROPAROLE/
+
+Flusso deploy (.github/workflows/deploy.yml):
+  1. Push su branch main
+  2. GitHub Actions esegue npm install
+  3. npm run build --> genera cartella dist/
+  4. dist/ viene pubblicata su GitHub Pages
+
+Configurazione path (vite.config.ts):
+  base: '/QUATTROPAROLE/'
+  (necessario perché GitHub Pages serve l'app in una sottocartella)
+
+
+10. CONFIGURAZIONE SUPABASE
+--------------------------------------------------------------------------------
+
+File da modificare: services/storageService.ts
+
+  SUPABASE_URL      URL del progetto (es. https://xxxxx.supabase.co)
+  SUPABASE_ANON_KEY Chiave pubblica "anon" (da Settings > API su Supabase)
+
+Progetto attualmente collegato:
+  ID progetto: ghhalunaiqtyoxryygje
+
+Setup database:
+  1. Aprire Supabase Dashboard
+  2. SQL Editor
+  3. Eseguire tutto il contenuto di supabase_setup.sql
+
+
+11. SVILUPPO LOCALE
+--------------------------------------------------------------------------------
+
+  npm install     Installa le dipendenze (prima volta)
+  npm run dev     Avvia server locale (di solito http://localhost:5173)
+  npm run build   Crea la versione di produzione in dist/
+  npm run preview Anteprima della build locale
+
+
+12. DIAGRAMMA SEMPLIFICATO
+--------------------------------------------------------------------------------
+
+    +------------------+
+    |   Utente (web)   |
+    +--------+---------+
+             |
+             v
+    +------------------+
+    |     App.tsx      |  UI, password, form, testo concatenato
+    +--------+---------+
+             |
+             v
+    +------------------+
+    | storageService   |  Legge/scrive dati, migrazione locale->cloud
+    +--------+---------+
+             |
+      +------+------+
+      |             |
+      v             v
+ +----------+  +------------+
+ | Supabase |  |localStorage|  (solo se cloud non configurato)
+ | tabella  |  | del browser|
+ | "storia" |  +------------+
+ +----------+
+
+
+13. PUNTI IMPORTANTI DA RICORDARE
+--------------------------------------------------------------------------------
+
+  - I dati sono condivisi tra PC solo se Supabase funziona (badge "Cloud OK")
+  - La password protegge solo il form nell'app, non il database
+  - La chiave "anon" è pubblica (va nel codice frontend); non usare service_role
+  - Dopo modifiche al codice: commit + push per aggiornare il sito online
+  - Se cambi progetto Supabase: aggiorna storageService.ts + esegui setup SQL
+
+
+================================================================================
+  Fine documento
+================================================================================

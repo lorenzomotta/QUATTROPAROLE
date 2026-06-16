@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Parola } from './types';
 import { storageService, StorageStatus } from './services/storageService';
+import StoryPager from './components/StoryPager';
 
 // TODO: Imposta la password per autorizzare l'inserimento
 const INSERT_PASSWORD = 'VALHALLA';
@@ -192,24 +193,18 @@ const App: React.FC = () => {
               I dati restano salvati solo su questo browser/PC. Configura Supabase in <strong>services/storageService.ts</strong> per condividerli tra dispositivi.
             </div>
           )}
-          {/* Visualizzazione concatenazione */}
-          <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-6 sm:p-8">
-            <h2 className="text-lg sm:text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-              Testo Completo
-            </h2>
-            <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-6 border-2 border-blue-100">
-              <p className="text-base sm:text-lg text-gray-800 leading-relaxed font-medium min-h-[60px]">
-                {loading ? (
-                  <span className="text-gray-400 italic">Caricamento...</span>
-                ) : getConcatenatedText() || (
-                  <span className="text-gray-400 italic">Nessun contributo ancora. Sii il primo!</span>
-                )}
-              </p>
+
+          {/* Pulsante AGGIUNGI */}
+          {!showAddForm && (
+            <div className="flex justify-center">
+              <button
+                onClick={handleShowAddForm}
+                className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold py-4 sm:py-3 px-8 sm:px-6 rounded-xl shadow-lg hover:shadow-xl transition-all transform hover:scale-105 touch-manipulation min-h-[56px] sm:min-h-[48px] text-base sm:text-sm"
+              >
+                AGGIUNGI TUE 4 PAROLE
+              </button>
             </div>
-          </div>
+          )}
 
           {/* Form inserimento */}
           {showAddForm && (
@@ -300,17 +295,20 @@ const App: React.FC = () => {
             </div>
           )}
 
-          {/* Pulsante AGGIUNGI */}
-          {!showAddForm && (
-            <div className="flex justify-center">
-              <button
-                onClick={handleShowAddForm}
-                className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold py-4 sm:py-3 px-8 sm:px-6 rounded-xl shadow-lg hover:shadow-xl transition-all transform hover:scale-105 touch-manipulation min-h-[56px] sm:min-h-[48px] text-base sm:text-sm"
-              >
-                AGGIUNGI TUE 4 PAROLE
-              </button>
-            </div>
-          )}
+          {/* Visualizzazione concatenazione */}
+          <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-6 sm:p-8">
+            <h2 className="text-lg sm:text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              Testo Completo
+            </h2>
+            <StoryPager
+              text={getConcatenatedText()}
+              loading={loading}
+              emptyMessage="Nessun contributo ancora. Sii il primo!"
+            />
+          </div>
         </div>
       </main>
 
